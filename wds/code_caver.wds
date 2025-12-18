@@ -1,0 +1,117 @@
+$$ code_caver.wds - Code Cave Scanner for WinDbg
+$$ Port of code_caver.py by nop (https://github.com/nop-tech/) | WDS version: ntpower
+$$
+$$ Usage: $$>a<code_caver.wds <start_addr> <end_addr>
+
+.block
+{
+    .printf "==================================================\n"
+    .printf "            Code Cave Scanner by nop\n"
+    .printf "==================================================\n"
+    .printf "        -> https://nop-blog.tech/\n"
+    .printf "        -> https://github.com/nop-tech/\n"
+    .printf "        -> https://twitter.com/thenopcode\n"
+    .printf "==================================================\n"
+    .printf "            WDS port: 0xntpower\n\n"
+}
+
+.block
+{
+    $$ Initialize registers
+    r $t0 = ${$arg1}
+    r $t1 = ${$arg2}
+    r $t9 = 0
+    
+    .printf "[*] Scanning for code caves: 0x%p - 0x%p\n\n", @$t0, @$t1
+}
+
+.block
+{
+    $$ Main scanning loop - iterate through memory range
+    .while (@$t0 < @$t1)
+    {
+        $$ Read 16 bytes (4 DWORDs) to check for empty region
+        r $t2 = dwo(@$t0)
+        r $t3 = dwo(@$t0 + 4)
+        r $t4 = dwo(@$t0 + 8)
+        r $t5 = dwo(@$t0 + 0xc)
+        
+        .if ((@$t2 == 0) & (@$t3 == 0) & (@$t4 == 0) & (@$t5 == 0))
+        {
+            $$ Found empty region - save start address
+            r $t6 = @$t0
+            r $t7 = 0
+            
+            $$ Measure cave size by walking forward
+            .while (1 == 1)
+            {
+                .if (@$t0 >= @$t1)
+                {
+                    .break
+                }
+                
+                r $t8 = dwo(@$t0)
+                .if (@$t8 != 0)
+                {
+                    .break
+                }
+                
+                r $t7 = @$t7 + 4
+                r $t0 = @$t0 + 4
+            }
+            
+            $$ Only report caves >= 16 bytes
+            .if (@$t7 >= 0x10)
+            {
+                $$ Check protection via !vprot - scan all tokens for exec flags
+                r $t8 = 0
+                
+                .foreach (tok {!vprot @$t6})
+                {
+                    .if ($sicmp("${tok}","0x10") == 0) { r $t8 = 0x10 }
+                    .elsif ($sicmp("${tok}","0x20") == 0) { r $t8 = 0x20 }
+                    .elsif ($sicmp("${tok}","0x40") == 0) { r $t8 = 0x40 }
+                    .elsif ($sicmp("${tok}","0x80") == 0) { r $t8 = 0x80 }
+                    .elsif ($sicmp("${tok}","00000010") == 0) { r $t8 = 0x10 }
+                    .elsif ($sicmp("${tok}","00000020") == 0) { r $t8 = 0x20 }
+                    .elsif ($sicmp("${tok}","00000040") == 0) { r $t8 = 0x40 }
+                    .elsif ($sicmp("${tok}","00000080") == 0) { r $t8 = 0x80 }
+                }
+                
+                $$ Report only executable caves
+                .if (@$t8 != 0)
+                {
+                    r $t9 = @$t9 + 1
+                    
+                    .if (@$t8 == 0x10)
+                    {
+                        .printf "\n[+] 0x%p - PAGE_EXECUTE (0x10)\n", @$t6
+                    }
+                    .elsif (@$t8 == 0x20)
+                    {
+                        .printf "\n[+] 0x%p - PAGE_EXECUTE_READ (0x20)\n", @$t6
+                    }
+                    .elsif (@$t8 == 0x40)
+                    {
+                        .printf "\n[+] 0x%p - PAGE_EXECUTE_READWRITE (0x40)\n", @$t6
+                    }
+                    .elsif (@$t8 == 0x80)
+                    {
+                        .printf "\n[+] 0x%p - PAGE_EXECUTE_WRITECOPY (0x80)\n", @$t6
+                    }
+                    
+                    .printf "|-> %d bytes\n", @$t7
+                }
+            }
+        }
+        .else
+        {
+            r $t0 = @$t0 + 0x10
+        }
+    }
+}
+
+.block
+{
+    .printf "\n[+] Done\n"
+}
